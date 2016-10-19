@@ -6,7 +6,7 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import func
 from database_handler import connect_to_db, get_db_session
 from data_model import Point
-from shapely import wkb
+# from shapely import wkb
 from datetime import datetime, timedelta
 from flask import Flask
 from flask import session, request
@@ -42,13 +42,13 @@ class User(db.Model):
 
 
 class Client(db.Model):
-    client_id = db.Column(db.String(40), primary_key=True)
+    client_id = db.Column(db.Integer, primary_key=True)
     client_secret = db.Column(db.String(55), nullable=False)
 
 class Token(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(
-        db.String(40), db.ForeignKey('client.client_id'),
+        db.Integer, db.ForeignKey('client.client_id'),
         nullable=False,
     )
     client = db.relationship('Client')
@@ -66,22 +66,22 @@ def current_user():
     return None
 
 def get_access_token(client,user):
-    byte_string = '%s:%s:%s' %(user.username, client.client_id, client.client_secret)
-    dig = hmac.new(b'1234567890', msg=byte_string, digestmod=hashlib.sha256).digest()
+    msg = '%s:%s:%s' %(user.username, client.client_id, client.client_secret)
+    dig = hmac.new(b'1234567890', msg=msg.encode('utf-8'), digestmod=hashlib.sha256).digest()
     return base64.b64encode(dig).decode()
 
 
 @app.route('/client/', methods=['POST'])
 def create_client():
     if request.method == 'POST':
-        client_secret = uuid.uuid1()#unique id based on timestamp and host
+        client_secret = str(uuid.uuid1())#unique id based on timestamp and host
         client = Client(client_secret=client_secret)
         db.session.add(client)
         db.session.commit()
         client = Client.query.filter_by(client_secret=client_secret).first()
-        return {'client_secret': client_secret, 'client_id': client.id}#sending as response
+        return jsonify({'client_secret': client_secret, 'client_id': client.client_id})#sending as response
 
-@app.route('/rest/oauth/token/', methods=('POST'))
+@app.route('/rest/oauth/token/', methods=['POST'])
 def home():
     if request.method == 'POST':
         client_id = request.form.get('client_id')
@@ -97,10 +97,10 @@ def home():
             db.session.commit()
         session['id'] = user.id#grant process skipped#internal
         access_token = get_access_token(client, User.query.filter_by(username=username).first())
-        token = Token(client_id, user_id=session['id'], access_token=access_token)
+        token = Token(client_id=client_id, user_id=session['id'], access_token=access_token)
         db.session.add(token)
         db.session.commit()
-        return {'access_token': access_token}
+        return jsonify({'access_token': access_token})
 
 def enforce_oauth(func):
     def wrapped(*args, **kwargs):
@@ -108,8 +108,9 @@ def enforce_oauth(func):
         if not access_token:
             return jsonify({'status': 'Invalid request!'})
         user = current_user()
-        token = Token.query.filter_by(token=access_token).first()
-        if not (token.user_id == user.id):
+        token = Token.query.filter_by(access_token=access_token).first()
+        # import pdb;pdb.set_trace()
+        if not token:
             return jsonify({'status': 'Invalid user!'})
         return func(*args, **kwargs)
     return wrapped
@@ -121,6 +122,11 @@ def get_within_radius(session, lat, lng, radius):
     geom_var = WKTElement('POINT({0} {1})'.format(lng, lat), srid=4326)
     return session.query(Point).filter(func.ST_DWithin(Point.geom, geom_var, radius)).all()
 
+
+@app.route('/test/oauth/', methods=['GET'])
+@enforce_oauth
+def test_oauth():
+    return jsonify({'status': 'Working'})
 
 @enforce_oauth
 @app.route('/co_ordinates/', methods=['GET', 'POST'])
