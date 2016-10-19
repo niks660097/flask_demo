@@ -6,7 +6,7 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import func
 from database_handler import connect_to_db, get_db_session
 from data_model import Point
-# from shapely import wkb
+from shapely import wkb
 from datetime import datetime, timedelta
 from flask import Flask
 from flask import session, request
