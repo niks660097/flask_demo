@@ -1,0 +1,10 @@
+1 - Get client credentials
+curl -X POST -d  http://localhost:8000/client/
+response - client_id and client_secret (private)
+
+2 - Get access_token
+curl -X POST -d "client_id=<client_id>&amp;client_secret=<client_secret>&amp;username=demo" http://localhost:8000/rest/oauth/token/
+response - access token, and new user is created
+
+3 - Accessing resource
+curl --header "Authorization:a503faf9-45b5-4fec-8334-337284a66ea4" http://localhost:8000/test/oauth/
