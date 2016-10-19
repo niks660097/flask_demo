@@ -1,13 +1,19 @@
-from flask import jsonify, session, request
+import hmac
+import hashlib
+import base64
+import uuid
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import func
-from flask import Flask, request
-from flask_sqlalchemy import SQLAlchemy
 from database_handler import connect_to_db, get_db_session
 from data_model import Point
-from werkzeug.security import gen_salt
-from flask_oauthlib.provider import OAuth1Provider
 from shapely import wkb
+from datetime import datetime, timedelta
+from flask import Flask
+from flask import session, request
+from flask import render_template, redirect, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import gen_salt
+from flask_oauthlib.provider import OAuth2Provider
 
 # Creates a Flask app and reads the settings from a
 # configuration file. We then connect to the database specified
@@ -25,12 +31,98 @@ app.config.from_pyfile('app.cfg')#todo
 #     return None
 
 
-engine = connect_to_db()
+#OAUth code
+db = SQLAlchemy(app)
+oauth = OAuth2Provider(app)
+
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(40), unique=True)
+
+
+class Client(db.Model):
+    client_id = db.Column(db.String(40), primary_key=True)
+    client_secret = db.Column(db.String(55), nullable=False)
+
+class Token(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(
+        db.String(40), db.ForeignKey('client.client_id'),
+        nullable=False,
+    )
+    client = db.relationship('Client')
+
+    user_id = db.Column(
+        db.Integer, db.ForeignKey('user.id')
+    )
+    user = db.relationship('User')
+    access_token = db.Column(db.String(255), unique=True)
+
+def current_user():
+    if 'id' in session:
+        uid = session['id']
+        return User.query.get(uid)
+    return None
+
+def get_access_token(client,user):
+    byte_string = '%s:%s:%s' %(user.username, client.client_id, client.client_secret)
+    dig = hmac.new(b'1234567890', msg=byte_string, digestmod=hashlib.sha256).digest()
+    return base64.b64encode(dig).decode()
+
+
+@app.route('/client/', methods=['POST'])
+def create_client():
+    if request.method == 'POST':
+        client_secret = uuid.uuid1()#unique id based on timestamp and host
+        client = Client(client_secret=client_secret)
+        db.session.add(client)
+        db.session.commit()
+        client = Client.query.filter_by(client_secret=client_secret).first()
+        return {'client_secret': client_secret, 'client_id': client.id}#sending as response
+
+@app.route('/rest/oauth/token/', methods=('POST'))
+def home():
+    if request.method == 'POST':
+        client_id = request.form.get('client_id')
+        client_secret = request.form.get('client_secret')
+        client = Client.query.filter_by(client_id=client_id, client_secret=client_secret).first()
+        if not client:
+            return jsonify({'status': 'Client not found!'})
+        username = request.form.get('username')
+        user = User.query.filter_by(username=username).first()
+        if not user:#no password
+            user = User(username=username)
+            db.session.add(user)
+            db.session.commit()
+        session['id'] = user.id#grant process skipped#internal
+        access_token = get_access_token(client, User.query.filter_by(username=username).first())
+        token = Token(client_id, user_id=session['id'], access_token=access_token)
+        db.session.add(token)
+        db.session.commit()
+        return {'access_token': access_token}
+
+def enforce_oauth(func):
+    def wrapped(*args, **kwargs):
+        access_token = request.headers.get('Authorization')
+        if not access_token:
+            return jsonify({'status': 'Invalid request!'})
+        user = current_user()
+        token = Token.query.filter_by(token=access_token).first()
+        if not (token.user_id == user.id):
+            return jsonify({'status': 'Invalid user!'})
+        return func(*args, **kwargs)
+    return wrapped
+#oauthcode end
+
+# engine = connect_to_db()
 
 def get_within_radius(session, lat, lng, radius):
     geom_var = WKTElement('POINT({0} {1})'.format(lng, lat), srid=4326)
     return session.query(Point).filter(func.ST_DWithin(Point.geom, geom_var, radius)).all()
 
+
+@enforce_oauth
 @app.route('/co_ordinates/', methods=['GET', 'POST'])
 def co_ordinates():
     if request.method == 'POST':
@@ -38,10 +130,9 @@ def co_ordinates():
         lng = request.form['long']
         if lat and lng:
             point = WKTElement('POINT({0} {1})'.format(lng, lat), srid=4326)
-            session = get_db_session(engine)
             p_obj = Point(geom=point)
-            session.add(p_obj)
-            session.commit()
+            db.session.add(p_obj)
+            db.session.commit()
             return jsonify({'status': 'added'})
 
     if request.method == 'GET':
@@ -49,8 +140,7 @@ def co_ordinates():
         lng = request.args.get('long')
         radius = request.args.get('radius')
         if lat and lng and radius:
-            session = get_db_session(engine)
-            result = get_within_radius(session, lat, lng, radius)
+            result = get_within_radius(db.session, lat, lng, radius)
             final_res = {'data': []}
             for i in result:
                 point = wkb.loads(bytes(i.geom.data))
@@ -61,7 +151,8 @@ def co_ordinates():
 if __name__ == '__main__':
   # Run the app on all available interfaces on port 80 which is the
   # standard port for HTTP
-	app.run(
+    db.create_all()
+    app.run(
         host="localhost",
         port=int("8000")
   )
