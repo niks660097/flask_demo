@@ -128,8 +128,8 @@ def get_within_radius(session, lat, lng, radius):
 def test_oauth():
     return jsonify({'status': 'Working'})
 
-@enforce_oauth
 @app.route('/co_ordinates/', methods=['GET', 'POST'])
+@enforce_oauth
 def co_ordinates():
     if request.method == 'POST':
         lat = request.form['lat']
