@@ -70,6 +70,9 @@ def get_access_token(client,user):
     dig = hmac.new(b'1234567890', msg=msg.encode('utf-8'), digestmod=hashlib.sha256).digest()
     return base64.b64encode(dig).decode()
 
+def decode_access_token(token):
+
+
 
 @app.route('/client/', methods=['POST'])
 def create_client():
@@ -82,7 +85,7 @@ def create_client():
         return jsonify({'client_secret': client_secret, 'client_id': client.client_id})#sending as response
 
 @app.route('/rest/oauth/token/', methods=['POST'])
-def home():
+def oauth_token():
     if request.method == 'POST':
         client_id = request.form.get('client_id')
         client_secret = request.form.get('client_secret')
