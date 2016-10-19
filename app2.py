@@ -29,7 +29,7 @@ def co_ordinates():
             p_obj = Point(geom=point)
             session.add(p_obj)
             session.commit()
-            #todo response'})
+            return jsonify({'status': 'added'})
 
     if request.method == 'GET':
         lat = request.args.get('lat')
@@ -38,8 +38,10 @@ def co_ordinates():
         if lat and lng and radius:
             session = get_db_session(engine)
             result = get_within_radius(session, lat, lng, radius)
-            #todo response
-    # return jsonify({'status': 'worik'})
+            final_res = {'data': []}
+            for i in result:
+                final_res['data'].append(i.__dict__)
+            return jsonify(final_res)
 
 if __name__ == '__main__':
   # Run the app on all available interfaces on port 80 which is the
