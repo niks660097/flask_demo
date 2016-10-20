@@ -6,7 +6,7 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import func
 from database_handler import connect_to_db, get_db_session
 from data_model import Point
-from shapely import wkb
+# from shapely import wkb
 from functools import wraps
 from datetime import datetime, timedelta
 from flask import Flask
@@ -71,16 +71,17 @@ def get_access_token(client,user):
     dig = hmac.new(bytearray(client.client_secret.encode('utf-8')), msg=msg.encode('utf-8'), digestmod=hashlib.sha256).digest()
     return base64.b64encode(dig).decode()
 
-def validate_access_token(client_secret, token):
+def validate_access_token(client_id, token):
     _token = Token.query.filter_by(access_token=token).first()
     if _token:
-        client = _token.client
-        username = _token.user.username
-        msg = "%s:%s:%s" % (username, client.client_id, client.client_secret)
-        dig = hmac.new(bytearray(client_secret.encode('utf-8')), msg=msg.encode('utf-8'), digestmod=hashlib.sha256).digest()
-        sig = base64.b64encode(dig).decode()
-        if token == sig:
-            return True
+        client = Client.query.filter_by(client_id=client_id).first()
+        if client:
+            username = _token.user.username
+            msg = "%s:%s:%s" % (username, client.client_id, client.client_secret)
+            dig = hmac.new(bytearray(client.client_secret.encode('utf-8')), msg=msg.encode('utf-8'), digestmod=hashlib.sha256).digest()
+            sig = base64.b64encode(dig).decode()
+            if token == sig:
+                return True
     return False
 
 
@@ -118,8 +119,8 @@ def oauth_token():
 def enforce_oauth(func):
     @wraps(func)
     def wrapped(*args, **kwargs):
-        client_secret, access_token = request.headers.get('Authorization').split(' ')
-        if not validate_access_token(client_secret, access_token):
+        client_id, access_token = request.headers.get('Authorization').split(' ')
+        if not validate_access_token(client_id, access_token):
             return jsonify({'status': 'Invalid request!'})
         return func(*args, **kwargs)
     return wrapped
